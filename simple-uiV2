@@ -1,0 +1,500 @@
+-- SimpleUI v2 by StaLLy & AI Helper
+local GUI = {
+    windows = {},
+    popped_out_tabs = {},
+    notifications = {},
+    active_control = nil,
+    focused_control = nil,
+    dragging_control = nil,
+    resizing_window = nil,
+    input = {
+        lmb_pressed = false, lmb_clicked = false, last_lmb = false,
+        rmb_pressed = false, rmb_clicked = false, last_rmb = false,
+        cursor = {x=0, y=0}
+    },
+    keybind_listening = nil,
+    key_down_initial_time = {},
+    key_down_last_repeat_time = {},
+    key_repeat_delay = 0.4,
+    key_repeat_rate = 0.04,
+    key_map = {
+        [0x30] = { normal = "0", shifted = ")" }, [0x31] = { normal = "1", shifted = "!" }, [0x32] = { normal = "2", shifted = "@" },
+        [0x33] = { normal = "3", shifted = "#" }, [0x34] = { normal = "4", shifted = "$" }, [0x35] = { normal = "5", shifted = "%" },
+        [0x36] = { normal = "6", shifted = "^" }, [0x37] = { normal = "7", shifted = "&" }, [0x38] = { normal = "8", shifted = "*" },
+        [0x39] = { normal = "9", shifted = "(" }, [0x41] = { normal = "a", shifted = "A" }, [0x42] = { normal = "b", shifted = "B" },
+        [0x43] = { normal = "c", shifted = "C" }, [0x44] = { normal = "d", shifted = "D" }, [0x45] = { normal = "e", shifted = "E" },
+        [0x46] = { normal = "f", shifted = "F" }, [0x47] = { normal = "g", shifted = "G" }, [0x48] = { normal = "h", shifted = "H" },
+        [0x49] = { normal = "i", shifted = "I" }, [0x4A] = { normal = "j", shifted = "J" }, [0x4B] = { normal = "k", shifted = "K" },
+        [0x4C] = { normal = "l", shifted = "L" }, [0x4D] = { normal = "m", shifted = "M" }, [0x4E] = { normal = "n", shifted = "N" },
+        [0x4F] = { normal = "o", shifted = "O" }, [0x50] = { normal = "p", shifted = "P" }, [0x51] = { normal = "q", shifted = "Q" },
+        [0x52] = { normal = "r", shifted = "R" }, [0x53] = { normal = "s", shifted = "S" }, [0x54] = { normal = "t", shifted = "T" },
+        [0x55] = { normal = "u", shifted = "U" }, [0x56] = { normal = "v", shifted = "V" }, [0x57] = { normal = "w", shifted = "W" },
+        [0x58] = { normal = "x", shifted = "X" }, [0x59] = { normal = "y", shifted = "Y" }, [0x5A] = { normal = "z", shifted = "Z" },
+        [0xBA] = { normal = ";", shifted = ":" }, [0xBB] = { normal = "=", shifted = "+" }, [0xBC] = { normal = ",", shifted = "<" },
+        [0xBD] = { normal = "-", shifted = "_" }, [0xBE] = { normal = ".", shifted = ">" }, [0xBF] = { normal = "/", shifted = "?" },
+        [0xC0] = { normal = "`", shifted = "~" }, [0xDB] = { normal = "[", shifted = "{" }, [0xDC] = { normal = "\\", shifted = "|" },
+        [0xDD] = { normal = "]", shifted = "}" }, [0xDE] = { normal = "'", shifted = '"' }, [0x20] = { normal = " ", shifted = " " },
+        [0x60]="0",[0x61]="1",[0x62]="2",[0x63]="3",[0x64]="4",[0x65]="5",[0x66]="6",[0x67]="7",[0x68]="8",[0x69]="9",
+        [0x6A]="*",[0x6B]="+",[0x6D]="-",[0x6E]=".",[0x6F]="/"
+    },
+    -- NEW: Configuration settings table
+    config = {
+        notification_position = 3, -- 1:TL, 2:TR, 3:BL, 4:BR
+        resizable_windows = false,
+        watermark = {
+            enabled = true,
+            position = 2, -- 1:TL, 2:TR
+            last_update = 0,
+            text = ""
+        },
+        loader = {
+            enabled = true,
+            logo_url = "https://i.imgur.com/3ZaC3j9.png",
+            logo_texture = nil,
+            start_time = 0
+        }
+    },
+    -- NEW: Theming table
+    theme = {
+        window_bg = {45, 45, 45, 255},
+        window_bg_inner = {25, 25, 25, 255},
+        title_bar_bg = {40, 40, 40, 255},
+        outline = {10, 10, 10, 255},
+        separator = {60, 60, 60, 255},
+        text = {220, 220, 220, 255},
+        text_inactive = {150, 150, 150, 255},
+        control_bg = {50, 50, 50, 255},
+        control_bg_hover = {70, 70, 70, 255},
+        control_outline = {60, 60, 60, 255},
+        accent = {150, 150, 255, 255},
+        accent_text = {255, 255, 255, 255},
+        notification_bg = {25, 25, 25, 240},
+    }
+}
+
+--================================================================
+-- INTERNAL LIBRARY FUNCTIONS
+--================================================================
+
+function GUI:lerp(a, b, t) return a + (b - a) * t end
+function GUI:update_input()
+    self.input.cursor = input.cursor_position()
+    self.input.lmb_pressed = utils.key_state(0x01)
+    self.input.lmb_clicked = self.input.lmb_pressed and not self.input.last_lmb
+    self.input.last_lmb = self.input.lmb_pressed
+    self.input.rmb_pressed = utils.key_state(0x02)
+    self.input.rmb_clicked = self.input.rmb_pressed and not self.input.last_rmb
+    self.input.last_rmb = self.input.rmb_pressed
+end
+function GUI:is_mouse_in(x, y, w, h) return self.input.cursor.x >= x and self.input.cursor.x <= x + w and self.input.cursor.y >= y and self.input.cursor.y <= y + h end
+function GUI:get_key_name(vk)
+    local names = {
+        [0x01]="LMB", [0x02]="RMB", [0x03]="CANCEL", [0x04]="MMB", [0x05]="X1", [0x06]="X2", [0x08]="BACK", [0x09]="TAB", [0x0C]="CLEAR", [0x0D]="ENTER",
+        [0x10]="SHIFT", [0x11]="CTRL", [0x12]="ALT", [0x13]="PAUSE", [0x14]="CAPS", [0x1B]="ESC", [0x20]="SPACE", [0x21]="PGUP", [0x22]="PGDN", [0x23]="END", [0x24]="HOME",
+        [0x25]="LEFT", [0x26]="UP", [0x27]="RIGHT", [0x28]="DOWN", [0x2C]="PRINT", [0x2D]="INSERT", [0x2E]="DELETE", [0x30]="0", [0x31]="1", [0x32]="2", [0x33]="3", [0x34]="4", [0x35]="5", [0x36]="6", [0x37]="7", [0x38]="8", [0x39]="9",
+        [0x41]="A", [0x42]="B", [0x43]="C", [0x44]="D", [0x45]="E", [0x46]="F", [0x47]="G", [0x48]="H", [0x49]="I", [0x4A]="J", [0x4B]="K", [0x4C]="L", [0x4D]="M", [0x4E]="N", [0x4F]="O", [0x50]="P", [0x51]="Q", [0x52]="R", [0x53]="S", [0x54]="T", [0x55]="U", [0x56]="V", [0x57]="W", [0x58]="X", [0x59]="Y", [0x5A]="Z",
+        [0x60]="NUM0", [0x61]="NUM1", [0x62]="NUM2", [0x63]="NUM3", [0x64]="NUM4", [0x65]="NUM5", [0x66]="NUM6", [0x67]="NUM7", [0x68]="NUM8", [0x69]="NUM9",
+        [0x6A]="*", [0x6B]="+", [0x6D]="-", [0x6E]=".", [0x6F]="/", [0x70]="F1", [0x71]="F2", [0x72]="F3", [0x73]="F4", [0x74]="F5", [0x75]="F6", [0x76]="F7", [0x77]="F8", [0x78]="F9", [0x79]="F10", [0x7A]="F11", [0x7B]="F12"
+    }
+    return names[vk] or "..."
+end
+function GUI:get_char_index_from_mouse_pos(text, relative_x)
+    local current_width = 0
+    if relative_x <= 0 then return 0 end
+    for i = 1, #text do
+        local char_width = render.measure_text(text:sub(i, i), 2).x
+        if relative_x < current_width + char_width / 2 then return i - 1 end
+        current_width = current_width + char_width
+    end
+    return #text
+end
+
+--================================================================
+-- TEXT AND COLOR HELPER FUNCTIONS
+--================================================================
+
+function GUI:record_textinput_state(ctrl) if not ctrl.history then return end if ctrl.history_index < #ctrl.history then for i = #ctrl.history, ctrl.history_index + 1, -1 do table.remove(ctrl.history, i) end end local value_field = (ctrl.type == "slider" and ctrl.is_editing) and "edit_value" or "value" local new_state = { value = ctrl[value_field], cursor_pos = ctrl.cursor_pos, selection_anchor = ctrl.selection_anchor } table.insert(ctrl.history, new_state) ctrl.history_index = #ctrl.history if #ctrl.history > 50 then table.remove(ctrl.history, 1) ctrl.history_index = ctrl.history_index - 1 end end
+function GUI:restore_textinput_state(ctrl, index) if not ctrl.history or not ctrl.history[index] then return end local state = ctrl.history[index] local value_field = (ctrl.type == "slider" and ctrl.is_editing) and "edit_value" or "value" ctrl[value_field] = state.value ctrl.cursor_pos = state.cursor_pos ctrl.selection_anchor = state.selection_anchor ctrl.history_index = index end
+function GUI:get_selection_points(ctrl) if not ctrl.selection_anchor then return nil end local p1 = ctrl.selection_anchor local p2 = ctrl.cursor_pos if p1 > p2 then return p2, p1 end return p1, p2 end
+function GUI:has_selection(ctrl) return ctrl.selection_anchor and ctrl.selection_anchor ~= ctrl.cursor_pos end
+function GUI:get_selected_text(ctrl) if not self:has_selection(ctrl) then return "" end local start_pos, end_pos = self:get_selection_points(ctrl) local value_field = (ctrl.type == "slider" and ctrl.is_editing) and "edit_value" or "value" return ctrl[value_field]:sub(start_pos + 1, end_pos) end
+function GUI:delete_selection(ctrl) if not self:has_selection(ctrl) then return end local start_pos, end_pos = self:get_selection_points(ctrl) local value_field = (ctrl.type == "slider" and ctrl.is_editing) and "edit_value" or "value" ctrl[value_field] = ctrl[value_field]:sub(1, start_pos) .. ctrl[value_field]:sub(end_pos + 1) ctrl.cursor_pos = start_pos ctrl.selection_anchor = nil end
+function GUI:hsv_to_rgb(h, s, v) if s == 0 then return v * 255, v * 255, v * 255 end local r, g, b local i = math.floor(h * 6) local f = h * 6 - i local p = v * (1 - s) local q = v * (1 - s * f) local t = v * (1 - s * (1 - f)) i = i % 6 if i == 0 then r, g, b = v, t, p elseif i == 1 then r, g, b = q, v, p elseif i == 2 then r, g, b = p, v, t elseif i == 3 then r, g, b = p, q, v elseif i == 4 then r, g, b = t, p, v else r, g, b = v, p, q end return r * 255, g * 255, b * 255 end
+function GUI:rgb_to_hsv(r, g, b) r, g, b = r / 255, g / 255, b / 255 local max, min = math.max(r, g, b), math.min(r, g, b) local h, s, v = 0, 0, max local d = max - min if max ~= 0 then s = d / max end if max ~= min then if max == r then h = (g - b) / d + (g < b and 6 or 0) elseif max == g then h = (b - r) / d + 2 else h = (r - g) / d + 4 end h = h / 6 end return h, s, v end
+function GUI:rgb_to_hex(r, g, b) r, g, b = math.floor(r), math.floor(g), math.floor(b) return string.format("#%02X%02X%02X", r, g, b) end
+
+--================================================================
+-- PUBLIC LIBRARY API
+--================================================================
+
+function GUI:new_window(title, x, y, w, h)
+    local window = {
+        title = title, x = x, y = y, w = w, h = h, visible = true,
+        dragging = false, drag_offset = {x=0, y=0},
+        collapsed = false, animation_speed = 0.15,
+        current_h = h, target_h = h,
+        tabs = {}, active_tab = 1,
+        layout_stack = {}
+    }
+
+    function window:get_current_tab() return self.tabs[self.active_tab] end
+    function window:add_tab(name) table.insert(self.tabs, { name = name, controls = {} }); return self.tabs[#self.tabs] end
+    
+    local function add_control(ctrl)
+        local tab = window:get_current_tab()
+        if not tab then print("Error: No tab selected.") return end
+        table.insert(tab.controls, ctrl)
+        ctrl.parent_window = window
+        return ctrl
+    end
+
+    function window:add_checkbox(name) GUI.control_counter = (GUI.control_counter or 0) + 1; return add_control({type = "checkbox", name = name, value = false, id = GUI.control_counter}) end
+    function window:add_slider(name, min, max, default) GUI.control_counter = (GUI.control_counter or 0) + 1; local val = default or min; local initial_state = { value = tostring(val), cursor_pos = #tostring(val), selection_anchor = nil }; return add_control({type = "slider", name = name, min = min, max = max, value = val, is_editing = false, edit_value = tostring(val), cursor_pos = 0, last_caret_toggle = 0, caret_visible = true, selection_anchor = nil, is_selecting_with_mouse = false, text_offset = 0, history = { initial_state }, history_index = 1, id = GUI.control_counter}) end
+    function window:add_button(name, callback) GUI.control_counter = (GUI.control_counter or 0) + 1; return add_control({type = "button", name = name, callback = callback or function() end, id = GUI.control_counter}) end
+    function window:add_keybind(name, default_key) GUI.control_counter = (GUI.control_counter or 0) + 1; return add_control({type = "keybind", name = name, key = default_key or 0, listening = false, mode = 2, modes = {"Toggle", "Hold", "Always"}, context_open = false, render_y = 0, toggled = false, last_state = false, listen_start_time = 0, id = GUI.control_counter}) end
+    function window:add_dropdown(name, items) GUI.control_counter = (GUI.control_counter or 0) + 1; return add_control({type = "dropdown", name = name, items = items, selected = 1, open = false, id = GUI.control_counter}) end
+    function window:add_multiselect(name, items) GUI.control_counter = (GUI.control_counter or 0) + 1; local selected = {}; for i = 1, #items do selected[i] = false end; return add_control({type = "multiselect", name = name, items = items, selected = selected, open = false, id = GUI.control_counter}) end
+    function window:add_textinput(name, default_text) GUI.control_counter = (GUI.control_counter or 0) + 1; local text = default_text or ""; local initial_state = { value = text, cursor_pos = #text, selection_anchor = nil }; return add_control({type = "textinput", name = name, value = text, cursor_pos = #text, last_caret_toggle = 0, caret_visible = true, selection_anchor = nil, is_selecting_with_mouse = false, history = { initial_state }, history_index = 1, text_offset = 0, id = GUI.control_counter}) end
+    function window:add_colorpicker(name, default_color) GUI.control_counter = (GUI.control_counter or 0) + 1; local r, g, b, a = default_color[1], default_color[2], default_color[3], default_color[4]; local h, s, v = GUI:rgb_to_hsv(r, g, b); local ctrl = add_control({type = "colorpicker", name = name, value = {r=r, g=g, b=b, a=a}, h=h, s=s, v=v, open = false, id = GUI.control_counter}); return ctrl.value end
+    function window:add_label(name) return add_control({type="label", name=name}) end
+    function window:add_separator() return add_control({type="separator"}) end
+    function window:begin_groupbox(name) local layout = {type="groupbox", name=name, start_y = 0}; table.insert(self.layout_stack, layout); add_control({type="layout_start", layout=layout}) end
+    function window:end_groupbox() local layout = table.remove(self.layout_stack); add_control({type="layout_end", layout=layout}) end
+    
+    table.insert(self.windows, window)
+    return window
+end
+
+function GUI:add_notification(text, n_type)
+    table.insert(self.notifications, 1, {text = text, type = n_type or "info", time = globals.curtime(), alpha = 0, target_alpha = 1})
+    if #self.notifications > 5 then table.remove(self.notifications) end
+end
+
+function GUI:pop_out_tab(tab_to_pop)
+    -- Create a new window for the popped-out tab
+    local new_wnd = self:new_window(tab_to_pop.name, 300, 300, 300, 400)
+    new_wnd.is_popped_out = true
+    
+    -- Create a new tab in the new window and copy controls
+    local new_tab = new_wnd:add_tab(tab_to_pop.name)
+    new_tab.controls = {}
+    for _, ctrl in ipairs(tab_to_pop.controls) do
+        -- Deep copy control to avoid reference issues
+        local new_ctrl = {}
+        for k, v in pairs(ctrl) do new_ctrl[k] = v end
+        table.insert(new_tab.controls, new_ctrl)
+    end
+    
+    -- Hide the original tab by adding a placeholder
+    tab_to_pop.is_popped = true
+    tab_to_pop.original_controls = tab_to_pop.controls
+    tab_to_pop.controls = {
+        {type="label", name="This tab is popped out."},
+        {type="button", name="Pop In", callback = function()
+            self:pop_in_tab(new_wnd, tab_to_pop)
+        end}
+    }
+end
+
+function GUI:pop_in_tab(wnd_to_close, original_tab)
+    -- Restore original controls
+    original_tab.controls = original_tab.original_controls
+    original_tab.is_popped = false
+    original_tab.original_controls = nil
+
+    -- Remove the popped-out window
+    for i, wnd in ipairs(self.windows) do
+        if wnd == wnd_to_close then
+            table.remove(self.windows, i)
+            break
+        end
+    end
+end
+
+
+function GUI:is_keybind_active(ctrl) if not ctrl or ctrl.key == 0 then return false end if ctrl.mode == 1 then return ctrl.toggled elseif ctrl.mode == 2 then return utils.key_state(ctrl.key) elseif ctrl.mode == 3 then return true end return false end
+function GUI:update_keybinds() for _, wnd in ipairs(self.windows) do for _, tab in ipairs(wnd.tabs) do for _, ctrl in ipairs(tab.controls) do if ctrl.type == "keybind" then local key_state = utils.key_state(ctrl.key) if ctrl.mode == 1 and key_state and not ctrl.last_state then ctrl.toggled = not ctrl.toggled; self:add_notification(string.format("%s: %s", ctrl.name, ctrl.toggled and "ON" or "OFF")) end ctrl.last_state = key_state end end end end end
+function GUI:handle_keyboard_input() if not self.focused_control or (self.focused_control.type ~= "textinput" and not self.focused_control.is_editing) then return end local ctrl = self.focused_control local is_slider_edit = ctrl.type == "slider" local value_field = is_slider_edit and "edit_value" or "value" local current_time = globals.curtime() local shift_pressed = utils.key_state(0x10) or utils.key_state(0xA0) or utils.key_state(0xA1) local ctrl_pressed = utils.key_state(0x11) or utils.key_state(0xA2) or utils.key_state(0xA3) local function handle_key_press(key_code, action, no_repeat) if utils.key_state(key_code) then if not self.key_down_initial_time[key_code] then action() self.key_down_initial_time[key_code] = current_time self.key_down_last_repeat_time[key_code] = current_time elseif not no_repeat and current_time - self.key_down_initial_time[key_code] > self.key_repeat_delay then if current_time - self.key_down_last_repeat_time[key_code] > self.key_repeat_rate then action() self.key_down_last_repeat_time[key_code] = current_time end end else self.key_down_initial_time[key_code] = nil end end local function update_selection() if shift_pressed then if not ctrl.selection_anchor then ctrl.selection_anchor = ctrl.cursor_pos end else ctrl.selection_anchor = nil end end if ctrl_pressed then handle_key_press(0x5A, function() if ctrl.history and ctrl.history_index > 1 then self:restore_textinput_state(ctrl, ctrl.history_index - 1) end end, true) handle_key_press(0x41, function() ctrl.selection_anchor = 0; ctrl.cursor_pos = #ctrl[value_field] end, true) handle_key_press(0x43, function() local selected_text = self:get_selected_text(ctrl) if selected_text ~= "" then utils.set_clipboard(selected_text) end end, true) handle_key_press(0x56, function() local content = utils.get_clipboard() if content and content ~= "" then self:record_textinput_state(ctrl); self:delete_selection(ctrl); content = content:gsub("[\r\n]", " "); ctrl[value_field] = ctrl[value_field]:sub(1, ctrl.cursor_pos) .. content .. ctrl[value_field]:sub(ctrl.cursor_pos + 1); ctrl.cursor_pos = ctrl.cursor_pos + #content end end, true); return end for key_code, chars in pairs(self.key_map) do handle_key_press(key_code, function() self:record_textinput_state(ctrl); self:delete_selection(ctrl); local char_to_add = (type(chars) == "table") and (shift_pressed and chars.shifted or chars.normal) or chars; ctrl[value_field] = ctrl[value_field]:sub(1, ctrl.cursor_pos) .. char_to_add .. ctrl[value_field]:sub(ctrl.cursor_pos + 1); ctrl.cursor_pos = ctrl.cursor_pos + #char_to_add end) end handle_key_press(0x08, function() self:record_textinput_state(ctrl); if self:has_selection(ctrl) then self:delete_selection(ctrl) elseif ctrl.cursor_pos > 0 then ctrl[value_field] = ctrl[value_field]:sub(1, ctrl.cursor_pos - 1) .. ctrl[value_field]:sub(ctrl.cursor_pos + 1); ctrl.cursor_pos = ctrl.cursor_pos - 1 end end) handle_key_press(0x2E, function() self:record_textinput_state(ctrl); if self:has_selection(ctrl) then self:delete_selection(ctrl) elseif ctrl.cursor_pos < #ctrl[value_field] then ctrl[value_field] = ctrl[value_field]:sub(1, ctrl.cursor_pos) .. ctrl[value_field]:sub(ctrl.cursor_pos + 2) end end) handle_key_press(0x25, function() update_selection(); ctrl.cursor_pos = math.max(0, ctrl.cursor_pos - 1) end) handle_key_press(0x27, function() update_selection(); ctrl.cursor_pos = math.min(#ctrl[value_field], ctrl.cursor_pos + 1) end) handle_key_press(0x24, function() update_selection(); ctrl.cursor_pos = 0 end) handle_key_press(0x23, function() update_selection(); ctrl.cursor_pos = #ctrl[value_field] end) handle_key_press(0x0D, function() if is_slider_edit then local old_val = ctrl.value; local num = tonumber(ctrl.edit_value); if num then ctrl.value = math.max(ctrl.min, math.min(ctrl.max, num)) end; ctrl.is_editing = false; self.focused_control = nil; self:add_notification(string.format("%s: %.2f -> %.2f", ctrl.name, old_val, ctrl.value)) end end, true) end
+
+function GUI:draw_loader()
+    if not self.config.loader.enabled then return end
+    
+    if self.config.loader.start_time == 0 then
+        self.config.loader.start_time = globals.curtime()
+        if self.config.loader.logo_url and self.config.loader.logo_url ~= "" then
+            self.config.loader.logo_texture = render.texture(self.config.loader.logo_url)
+        end
+    end
+
+    local elapsed = globals.curtime() - self.config.loader.start_time
+    if elapsed > 3 then
+        self.config.loader.enabled = false
+        return
+    end
+
+    local screen_w, screen_h = render.screen_size().x, render.screen_size().y
+    local box_w, box_h = 200, 100
+    local box_x, box_y = (screen_w - box_w) / 2, (screen_h - box_h) / 2
+    local alpha = 255
+    if elapsed > 2 then
+        alpha = self:lerp(255, 0, elapsed - 2)
+    end
+
+    render.rect(box_x, box_y, box_w, box_h, self.theme.window_bg[1], self.theme.window_bg[2], self.theme.window_bg[3], alpha)
+    render.rect_outline(box_x, box_y, box_w, box_h, self.theme.outline[1], self.theme.outline[2], self.theme.outline[3], alpha, 0, 1)
+
+    if self.config.loader.logo_texture then
+        render.image(self.config.loader.logo_texture, box_x + 75, box_y + 10, box_x + 125, box_y + 60, 0,0,1,1, 255,255,255,alpha)
+    end
+    
+    local loading_text = "Loading..."
+    local text_size = render.measure_text(loading_text, 2)
+    render.text(box_x + (box_w - text_size.x) / 2, box_y + 70, loading_text, self.theme.text[1], self.theme.text[2], self.theme.text[3], alpha, "", 2)
+end
+
+function GUI:draw_watermark()
+    if not self.config.watermark.enabled then return end
+    local time = globals.curtime()
+    if time - self.config.watermark.last_update > 1 then
+        self.config.watermark.last_update = time
+        local user = utils.get_username() or "User"
+        local current_time = os.date("%I:%M:%S %p")
+        self.config.watermark.text = string.format("Assembly | %s | %s", user, current_time)
+    end
+    
+    local text_size = render.measure_text(self.config.watermark.text, 2)
+    local screen_w = render.screen_size().x
+    local x, y = 10, 10
+    if self.config.watermark.position == 2 then -- Top Right
+        x = screen_w - text_size.x - 10
+    end
+    render.text(x, y, self.config.watermark.text, self.theme.text[1], self.theme.text[2], self.theme.text[3], 255, "s", 2)
+end
+
+function GUI:draw()
+    if self.config.loader.enabled then
+        self:draw_loader()
+        return
+    end
+
+    self:update_input()
+    self:handle_keyboard_input()
+    self:draw_watermark()
+
+    local keybind_context_to_draw = nil
+    local colorpicker_to_draw = nil
+
+    if self.keybind_listening and self.keybind_listening.listening then for i = 1, 255 do if utils.key_state(i) then if i ~= 0x01 or (globals.curtime() - self.keybind_listening.listen_start_time > 0.2) then self.keybind_listening.key = i; self.keybind_listening.listening = false; self.keybind_listening = nil; self:add_notification("Keybind set!"); break end end end end
+    if self.input.lmb_clicked then local is_over_any_ui = false; for _, wnd in ipairs(self.windows) do if wnd.visible and self:is_mouse_in(wnd.x, wnd.y, wnd.w, wnd.current_h) then is_over_any_ui = true; break end end; if not is_over_any_ui and self.active_control and self.active_control.type == "colorpicker" then is_over_any_ui = self:is_mouse_in(self.active_control.popup_x, self.active_control.popup_y, self.active_control.popup_w, self.active_control.popup_h) end; if not is_over_any_ui then if self.focused_control and self.focused_control.type == "slider" and self.focused_control.is_editing then local ctrl = self.focused_control; local num = tonumber(ctrl.edit_value); if num then ctrl.value = math.max(ctrl.min, math.min(ctrl.max, num)) end; ctrl.is_editing = false end; if self.active_control and self.active_control.type == "colorpicker" then self.active_control.open = false; self.active_control = nil end; self.focused_control = nil end end
+    if self.dragging_control and not self.input.lmb_pressed then self.dragging_control = nil end
+    if self.resizing_window and not self.input.lmb_pressed then self.resizing_window = nil end
+
+    for _, wnd in ipairs(self.windows) do
+        if not wnd.visible then goto continue end
+
+        -- NEW: Resizing logic
+        local resize_handle_size = 10
+        local is_over_resize_handle = self.config.resizable_windows and self:is_mouse_in(wnd.x + wnd.w - resize_handle_size, wnd.y + wnd.current_h - resize_handle_size, resize_handle_size, resize_handle_size)
+        if self.resizing_window == wnd then
+            if self.input.lmb_pressed then
+                wnd.w = math.max(200, self.input.cursor.x - wnd.x)
+                wnd.h = math.max(150, self.input.cursor.y - wnd.y)
+            else
+                self.resizing_window = nil
+            end
+        elseif wnd.dragging then
+            if self.input.lmb_pressed then wnd.x, wnd.y = self.input.cursor.x - wnd.drag_offset.x, self.input.cursor.y - wnd.drag_offset.y else wnd.dragging = false end
+        elseif self.input.lmb_clicked and not is_over_resize_handle then
+            if self:is_mouse_in(wnd.x, wnd.y, wnd.w, 25) and not self:is_mouse_in(wnd.x + 5, wnd.y + 5, 15, 15) then
+                wnd.dragging = true; wnd.drag_offset.x, wnd.drag_offset.y = self.input.cursor.x - wnd.x, self.input.cursor.y - wnd.y
+            elseif self:is_mouse_in(wnd.x + 5, wnd.y + 5, 15, 15) then
+                wnd.collapsed = not wnd.collapsed; if self.active_control then self.active_control.open = false; self.active_control = nil end
+                if wnd:get_current_tab() then for _, c in ipairs(wnd:get_current_tab().controls) do if c.context_open then c.context_open = false end end end
+            end
+        elseif self.input.lmb_clicked and is_over_resize_handle then
+            self.resizing_window = wnd
+        end
+
+        local calculated_h = 35 + (#wnd.tabs > 0 and 30 or 0)
+        if wnd:get_current_tab() then
+            -- This is a simplified height calculation. A more robust solution would be to calculate during the draw pass.
+            for _, ctrl in ipairs(wnd:get_current_tab().controls) do
+                if ctrl.type == "button" then calculated_h = calculated_h + 30
+                elseif ctrl.type == "slider" then calculated_h = calculated_h + 35
+                elseif ctrl.type == "textinput" then calculated_h = calculated_h + 45
+                elseif ctrl.type == "colorpicker" then calculated_h = calculated_h + 25
+                elseif ctrl.type == "dropdown" or ctrl.type == "multiselect" then
+                    calculated_h = calculated_h + 45
+                    if ctrl.open then calculated_h = calculated_h + #ctrl.items * 20 end
+                elseif ctrl.type == "separator" then calculated_h = calculated_h + 10
+                elseif ctrl.type == "label" then calculated_h = calculated_h + 20
+                elseif ctrl.type == "layout_start" and ctrl.layout.type == "groupbox" then calculated_h = calculated_h + 25
+                elseif ctrl.type == "layout_end" then calculated_h = calculated_h + 15
+                else calculated_h = calculated_h + 25 end
+            end
+        end
+        wnd.target_h = wnd.collapsed and 25 or wnd.h
+        wnd.current_h = self:lerp(wnd.current_h, wnd.target_h, wnd.animation_speed)
+
+        render.rect(wnd.x - 1, wnd.y - 1, wnd.w + 2, wnd.current_h + 2, unpack(self.theme.outline))
+        render.rect(wnd.x, wnd.y, wnd.w, wnd.current_h, unpack(self.theme.window_bg))
+        render.rect(wnd.x + 1, wnd.y + 1, wnd.w - 2, wnd.current_h - 2, unpack(self.theme.window_bg_inner))
+        
+        render.rect(wnd.x + 1, wnd.y + 1, wnd.w - 2, 24, unpack(self.theme.title_bar_bg))
+        render.line(wnd.x, wnd.y + 25, wnd.x + wnd.w, wnd.y + 25, unpack(self.theme.separator))
+
+        local title_size = render.measure_text(wnd.title or "", 2)
+        render.text(wnd.x + (wnd.w - title_size.x) / 2, wnd.y + 5, wnd.title or "", unpack(self.theme.text), "", 2)
+
+        local arrow_x, arrow_y = wnd.x + 10, wnd.y + 8
+        render.triangle(arrow_x, arrow_y + (wnd.collapsed and 0 or 8), arrow_x + (wnd.collapsed and 0 or 8), arrow_y + (wnd.collapsed and 8 or 8), arrow_x + 4, arrow_y + (wnd.collapsed and 4 or 0), self.theme.text[1], self.theme.text[2], self.theme.text[3], 255)
+
+        if not wnd.collapsed then
+            local offset_y = wnd.y + 35
+            if #wnd.tabs > 0 then
+                local tab_w = (wnd.w - 2) / #wnd.tabs
+                for i, tab in ipairs(wnd.tabs) do
+                    local tab_x = wnd.x + 1 + (i - 1) * tab_w
+                    if i == wnd.active_tab then render.rect(tab_x, offset_y, tab_w, 25, unpack(self.theme.title_bar_bg)) end
+                    if self:is_mouse_in(tab_x, offset_y, tab_w, 25) and self.input.lmb_clicked then wnd.active_tab = i end
+                    local text_size = render.measure_text(tab.name or "", 2)
+                    local r,g,b = (i == wnd.active_tab) and self.theme.text[1] or self.theme.text_inactive[1], (i == wnd.active_tab) and self.theme.text[2] or self.theme.text_inactive[2], (i == wnd.active_tab) and self.theme.text[3] or self.theme.text_inactive[3]
+                    render.text(tab_x + (tab_w - text_size.x) / 2, offset_y + 5, tab.name or "", r,g,b, 255, "", 2)
+                end
+                offset_y = offset_y + 30
+            end
+
+            render.push_clip_rect(wnd.x, wnd.y + 26, wnd.w, wnd.current_h - 26)
+
+            if wnd.current_h > 30 and wnd:get_current_tab() then
+                local current_tab = wnd:get_current_tab()
+                for _, ctrl in ipairs(current_tab.controls) do
+                    if ctrl.type == "keybind" then
+                        if self.input.rmb_clicked and self:is_mouse_in(wnd.x + 10, offset_y, wnd.w - 20, 15) then if self.active_control then self.active_control.open = false; self.active_control = nil end; for _, c in ipairs(current_tab.controls) do if c ~= ctrl and c.context_open then c.context_open = false end end; ctrl.context_open = not ctrl.context_open end
+                        if ctrl.context_open then keybind_context_to_draw = {ctrl = ctrl, wnd = wnd} end
+                    elseif ctrl.type == "colorpicker" and ctrl.open then colorpicker_to_draw = {ctrl = ctrl, wnd = wnd, y = offset_y + 25} end
+                    offset_y = self:draw_control(wnd, ctrl, offset_y)
+                end
+            end
+            render.pop_clip_rect()
+        end
+        -- NEW: Draw resize handle
+        if self.config.resizable_windows and not wnd.collapsed then
+            local x, y = wnd.x + wnd.w - resize_handle_size, wnd.y + wnd.current_h - resize_handle_size
+            render.line(x, y + resize_handle_size, x + resize_handle_size, y, unpack(self.theme.separator))
+            render.line(x + 4, y + resize_handle_size, x + resize_handle_size, y + 4, unpack(self.theme.separator))
+        end
+        ::continue::
+    end
+
+    if keybind_context_to_draw then local ctrl, wnd = keybind_context_to_draw.ctrl, keybind_context_to_draw.wnd; local context_x, context_w = wnd.x + wnd.w + 5, 70; local context_y = ctrl.render_y; local item_h = 18; local context_h = #ctrl.modes * item_h + 4; render.rect(context_x, context_y, context_w, context_h, unpack(self.theme.title_bar_bg)); render.rect_outline(context_x, context_y, context_w, context_h, unpack(self.theme.control_outline)); for j, mode_name in ipairs(ctrl.modes) do local item_y = context_y + 2 + (j - 1) * item_h; if self:is_mouse_in(context_x, item_y - 2, context_w, item_h) then render.rect(context_x, item_y - 2, context_w, item_h, unpack(self.theme.control_bg_hover)); if self.input.lmb_clicked then ctrl.mode = j; ctrl.context_open = false end end; local r, g, b = (j == ctrl.mode) and self.theme.accent[1] or self.theme.text[1], (j == ctrl.mode) and self.theme.accent[2] or self.theme.text[2], (j == ctrl.mode) and self.theme.accent[3] or self.theme.text[3]; local mode_text_size = render.measure_text(mode_name or "", 2); render.text(context_x + (context_w - mode_text_size.x) / 2, item_y, mode_name or "", r, g, b, 255, "", 2) end; if self.input.lmb_clicked and not self:is_mouse_in(context_x, context_y, context_w, context_h) then ctrl.context_open = false end end
+    if colorpicker_to_draw then local ctrl, wnd, y = colorpicker_to_draw.ctrl, colorpicker_to_draw.wnd, colorpicker_to_draw.y; local picker_w, picker_h = 150, 180; local picker_x, picker_y = wnd.x + wnd.w + 5, y; ctrl.popup_x, ctrl.popup_y, ctrl.popup_w, ctrl.popup_h = picker_x, picker_y, picker_w, picker_h; render.rect(picker_x, picker_y, picker_w, picker_h, unpack(self.theme.window_bg_inner)); render.rect_outline(picker_x, picker_y, picker_w, picker_h, unpack(self.theme.control_outline)); local palette_x, palette_y = picker_x + 5, picker_y + 5; local palette_w, palette_h = picker_w - 30, picker_h - 60; local r_hue, g_hue, b_hue = self:hsv_to_rgb(ctrl.h, 1, 1); render.gradient(palette_x, palette_y, palette_w, palette_h, 255, 255, 255, 255, r_hue, g_hue, b_hue, 255, r_hue, g_hue, b_hue, 255, 255, 255, 255, 255); render.gradient(palette_x, palette_y, palette_w, palette_h, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 0, 0, 0, 255); local hue_x, hue_y = palette_x + palette_w + 5, palette_y; local hue_w, hue_h = 15, palette_h; for i=0, hue_h-1 do local hue = i / hue_h; local r,g,b = self:hsv_to_rgb(hue, 1, 1); render.line(hue_x, hue_y + i, hue_x + hue_w, hue_y + i, r, g, b, 255, 1) end; local alpha_x, alpha_y = palette_x, palette_y + palette_h + 5; local alpha_w, alpha_h = palette_w, 15; local square_size = 4; for iy = 0, alpha_h - 1, square_size do for ix = 0, alpha_w - 1, square_size do local color = ((math.floor(ix / square_size) + math.floor(iy / square_size)) % 2 == 0) and {200, 200, 200} or {150, 150, 150}; render.rect(alpha_x + ix, alpha_y + iy, math.min(square_size, alpha_w - ix), math.min(square_size, alpha_h - iy), color[1], color[2], color[3], 255) end end; local r,g,b = ctrl.value.r, ctrl.value.g, ctrl.value.b; render.gradient(alpha_x, alpha_y, alpha_w, alpha_h, r,g,b,0, r,g,b,255, r,g,b,255, r,g,b,0); if self:is_mouse_in(palette_x, palette_y, palette_w, palette_h) and self.input.lmb_pressed then self.dragging_control = ctrl.id .. "_sv" end; if self:is_mouse_in(hue_x, hue_y, hue_w, hue_h) and self.input.lmb_pressed then self.dragging_control = ctrl.id .. "_h" end; if self:is_mouse_in(alpha_x, alpha_y, alpha_w, alpha_h) and self.input.lmb_pressed then self.dragging_control = ctrl.id .. "_a" end; if self.dragging_control == ctrl.id .. "_sv" then ctrl.s = math.max(0, math.min(1, (self.input.cursor.x - palette_x) / palette_w)); ctrl.v = math.max(0, math.min(1, 1 - (self.input.cursor.y - palette_y) / palette_h)) elseif self.dragging_control == ctrl.id .. "_h" then ctrl.h = math.max(0, math.min(1, (self.input.cursor.y - hue_y) / hue_h)) elseif self.dragging_control == ctrl.id .. "_a" then ctrl.value.a = math.floor(math.max(0, math.min(1, (self.input.cursor.x - alpha_x) / alpha_w)) * 255) end; local r,g,b = self:hsv_to_rgb(ctrl.h, ctrl.s, ctrl.v); ctrl.value.r, ctrl.value.g, ctrl.value.b = r,g,b; local text_y = alpha_y + alpha_h + 8; local rgba_text = string.format("RGBA: %d, %d, %d, %d", math.floor(ctrl.value.r), math.floor(ctrl.value.g), math.floor(ctrl.value.b), ctrl.value.a); local hex_text = string.format("HEX: %s", self:rgb_to_hex(ctrl.value.r, ctrl.value.g, ctrl.value.b)); render.text(palette_x, text_y, rgba_text, 200, 200, 200, 255, "", 2); render.text(palette_x, text_y + 15, hex_text, 200, 200, 200, 255, "", 2); render.circle_outline(palette_x + palette_w * ctrl.s, palette_y + palette_h * (1 - ctrl.v), 5, 255, 255, 255, 255, 1, 12); render.rect(hue_x - 1, hue_y + hue_h * ctrl.h - 1, hue_w + 2, 3, 255, 255, 255, 255); render.rect(alpha_x + alpha_w * (ctrl.value.a / 255) - 1, alpha_y - 1, 3, alpha_h + 2, 255, 255, 255, 255) end
+    
+    local time = globals.curtime()
+    local y_offset = 10
+    for i = #self.notifications, 1, -1 do
+        local notif = self.notifications[i]
+        local elapsed = time - notif.time
+        if elapsed > 5 then notif.target_alpha = 0 end
+        notif.alpha = self:lerp(notif.alpha, notif.target_alpha, 0.1)
+
+        if notif.alpha < 0.01 and notif.target_alpha == 0 then table.remove(self.notifications, i)
+        else
+            local screen_w, screen_h = render.screen_size().x, render.screen_size().y
+            local text_size = render.measure_text(notif.text, 2)
+            local w, h = text_size.x + 20, 30
+            local x, y
+            if self.config.notification_position == 1 then x, y = 10, 10 + y_offset -- TL
+            elseif self.config.notification_position == 2 then x, y = screen_w - w - 10, 10 + y_offset -- TR
+            elseif self.config.notification_position == 3 then x, y = 10, screen_h - h - y_offset -- BL
+            else x, y = screen_w - w - 10, screen_h - h - y_offset end -- BR
+
+            render.rect(x, y, w, h, unpack(self.theme.notification_bg))
+            render.rect_outline(x, y, w, h, unpack(self.theme.control_outline))
+            render.text(x + 10, y + 8, notif.text, unpack(self.theme.text))
+            y_offset = y_offset + h + 10
+        end
+    end
+end
+
+function GUI:draw_control(wnd, ctrl, offset_y)
+    local layout = #wnd.layout_stack > 0 and wnd.layout_stack[#wnd.layout_stack] or nil
+    local ctrl_x = wnd.x + 10 + (layout and 10 or 0)
+    local ctrl_w = wnd.w - 20 - (layout and 20 or 0)
+
+    if ctrl.type == "layout_start" then ctrl.layout.start_y = offset_y; render.rect_outline(ctrl_x - 5, offset_y, ctrl_w + 10, 100, unpack(self.theme.separator)); local text_size = render.measure_text(ctrl.layout.name or "", 2); render.rect(ctrl_x + 5, offset_y - 8, text_size.x + 10, 16, unpack(self.theme.window_bg_inner)); render.text(ctrl_x + 10, offset_y - 7, ctrl.layout.name or "", unpack(self.theme.text)); return offset_y + 25
+    elseif ctrl.type == "layout_end" then if layout then local group_h = offset_y - layout.start_y; render.rect_outline(wnd.x + 15, layout.start_y, wnd.w - 30, group_h, unpack(self.theme.separator)) end; return offset_y + 15 end
+
+    if ctrl.type == "checkbox" then
+        render.text(ctrl_x, offset_y, ctrl.name or "", unpack(self.theme.text))
+        local box_x = ctrl_x + ctrl_w - 15
+        render.rect_outline(box_x, offset_y, 15, 15, unpack(self.theme.control_outline))
+        if ctrl.value then render.rect(box_x + 3, offset_y + 3, 9, 9, unpack(self.theme.accent)) end
+        if self.input.lmb_clicked and self:is_mouse_in(box_x, offset_y, 15, 15) then ctrl.value = not ctrl.value; self:add_notification(string.format("%s: %s", ctrl.name, ctrl.value and "ON" or "OFF")) end
+        return offset_y + 25
+
+    elseif ctrl.type == "button" then
+        local is_hovered = self:is_mouse_in(ctrl_x, offset_y, ctrl_w, 20)
+        render.rect(ctrl_x, offset_y, ctrl_w, 20, unpack(is_hovered and self.theme.control_bg_hover or self.theme.control_bg))
+        local text_size = render.measure_text(ctrl.name or "", 2)
+        render.text(ctrl_x + (ctrl_w - text_size.x) / 2, offset_y + 2, ctrl.name or "", unpack(self.theme.text))
+        if self.input.lmb_clicked and is_hovered then ctrl.callback(); self:add_notification(ctrl.name .. " clicked") end
+        return offset_y + 30
+
+    elseif ctrl.type == "keybind" then
+        ctrl.render_y = offset_y; render.text(ctrl_x, offset_y, ctrl.name or "", unpack(self.theme.text)); local mode_char = string.sub(ctrl.modes[ctrl.mode], 1, 1); local text = ctrl.listening and "..." or string.format("[%s] (%s)", self:get_key_name(ctrl.key), mode_char); local text_size = render.measure_text(text, 2); local text_x = wnd.x + wnd.w - 10 - text_size.x; render.text(text_x, offset_y, text, unpack(self.theme.text)); if self.input.lmb_clicked and self:is_mouse_in(ctrl_x, offset_y, ctrl_w, 15) then if self.keybind_listening then self.keybind_listening.listening = false end; ctrl.listening = true; ctrl.listen_start_time = globals.curtime(); self.keybind_listening = ctrl end
+        return offset_y + 25
+
+    elseif ctrl.type == "slider" then
+        if self.input.lmb_clicked and self:is_mouse_in(ctrl_x, offset_y + 18, ctrl_w, 9) then self.dragging_control = ctrl.id end
+        if self.dragging_control == ctrl.id then local old_val = ctrl.value; local new_ratio = (self.input.cursor.x - ctrl_x) / ctrl_w; ctrl.value = ctrl.min + (ctrl.max - ctrl.min) * math.max(0, math.min(1, new_ratio)); if math.abs(ctrl.value - old_val) > 0.01 and not self.input.lmb_pressed then self:add_notification(string.format("%s: %.2f", ctrl.name, ctrl.value)) end end
+        if self.input.rmb_clicked and self:is_mouse_in(ctrl_x, offset_y, ctrl_w, 20) then ctrl.is_editing = true; ctrl.edit_value = string.format("%.2f", ctrl.value):gsub("%.00", ""); ctrl.cursor_pos = #ctrl.edit_value; self.focused_control = ctrl end
+        if ctrl.is_editing then local box_w = 60; local box_x = ctrl_x + ctrl_w - box_w; self:draw_text_field(ctrl, "edit_value", box_x, offset_y - 2, box_w, 18)
+        else local formatted_value = (ctrl.value == math.floor(ctrl.value)) and tostring(math.floor(ctrl.value)) or string.format("%.2f", ctrl.value); render.text(ctrl_x, offset_y, string.format("%s: %s", ctrl.name or "", formatted_value), unpack(self.theme.text)) end
+        local slider_y = offset_y + 18; render.rect(ctrl_x, slider_y, ctrl_w, 5, unpack(self.theme.control_bg)); local ratio = (ctrl.value - ctrl.min) / (ctrl.max - ctrl.min); render.rect(ctrl_x, slider_y, ctrl_w * ratio, 5, unpack(self.theme.accent))
+        return offset_y + 35
+
+    elseif ctrl.type == "colorpicker" then
+        render.text(ctrl_x, offset_y, ctrl.name or "", unpack(self.theme.text))
+        local box_x, box_y, box_w, box_h = ctrl_x + ctrl_w - 40, offset_y, 40, 20
+        render.rect(box_x, box_y, box_w, box_h, ctrl.value.r, ctrl.value.g, ctrl.value.b, ctrl.value.a)
+        render.rect_outline(box_x, box_y, box_w, box_h, unpack(self.theme.control_outline))
+        if self.input.lmb_clicked and self:is_mouse_in(box_x, box_y, box_w, box_h) then if self.active_control and self.active_control ~= ctrl then self.active_control.open = false end; ctrl.open = not ctrl.open; self.active_control = ctrl.open and ctrl or nil end
+        return offset_y + 25
+
+    elseif ctrl.type == "dropdown" or ctrl.type == "multiselect" then
+        render.text(ctrl_x, offset_y, ctrl.name or "", unpack(self.theme.text)); local box_x, box_y, box_w, box_h = ctrl_x, offset_y + 15, ctrl_w, 20; render.rect(box_x, box_y, box_w, box_h, unpack(self.theme.control_bg)); render.rect_outline(box_x, box_y, box_w, box_h, unpack(self.theme.control_outline)); local arrow_x, arrow_y_ = box_x + box_w - 12, box_y + 7; render.triangle(arrow_x, arrow_y_, arrow_x + 8, arrow_y_, arrow_x + 4, arrow_y_ + 6, self.theme.text[1], self.theme.text[2], self.theme.text[3], 255); local display_text = (ctrl.type == "dropdown") and ctrl.items[ctrl.selected] or (#(function() local t={} for k,v in pairs(ctrl.selected) do if v then table.insert(t,k) end end return t end)()) .. " selected"; render.text(box_x + 5, box_y + 2, display_text, unpack(self.theme.text)); if self.input.lmb_clicked and self:is_mouse_in(box_x, box_y, box_w, box_h) then if self.active_control and self.active_control ~= ctrl then self.active_control.open = false end; ctrl.open = not ctrl.open; self.active_control = ctrl.open and ctrl or nil end; local new_offset_y = offset_y + 45
+        if ctrl.open then local list_x, list_y, list_w = box_x, box_y + box_h, box_w; local item_h = 20; render.rect(list_x, list_y, list_w, #ctrl.items * item_h, unpack(self.theme.control_bg)); for j, item_name in ipairs(ctrl.items) do local item_y = list_y + (j - 1) * item_h; if self:is_mouse_in(list_x, item_y, list_w, item_h) then render.rect(list_x, item_y, list_w, item_h, unpack(self.theme.control_bg_hover)); if self.input.lmb_clicked then if ctrl.type == "dropdown" then local old_selection = ctrl.items[ctrl.selected]; ctrl.selected = j; ctrl.open = false; self.active_control = nil; self:add_notification(string.format("%s: %s", ctrl.name, ctrl.items[j])) else ctrl.selected[j] = not ctrl.selected[j]; self:add_notification(string.format("%s: %s toggled", item_name, ctrl.selected[j] and "ON" or "OFF")) end end end; if ctrl.type == "multiselect" then render.rect_outline(list_x + 5, item_y + 5, 10, 10, unpack(self.theme.control_outline)); if ctrl.selected[j] then render.rect(list_x + 7, item_y + 7, 6, 6, unpack(self.theme.accent)) end; render.text(list_x + 20, item_y + 2, item_name, unpack(self.theme.text)) else render.text(list_x + 5, item_y + 2, item_name, unpack(self.theme.text)) end end; new_offset_y = new_offset_y + #ctrl.items * item_h end
+        return new_offset_y
+
+    elseif ctrl.type == "textinput" then
+        render.text(ctrl_x, offset_y, ctrl.name or "", unpack(self.theme.text))
+        local box_x, box_y, box_w, box_h = ctrl_x, offset_y + 15, ctrl_w, 20
+        self:draw_text_field(ctrl, "value", box_x, box_y, box_w, box_h)
+        return offset_y + 45
+    
+    elseif ctrl.type == "label" then render.text(ctrl_x, offset_y, ctrl.name or "", unpack(self.theme.text)); return offset_y + 20
+    elseif ctrl.type == "separator" then render.line(ctrl_x, offset_y + 4, ctrl_x + ctrl_w, offset_y + 4, unpack(self.theme.separator)); return offset_y + 10 end
+    return offset_y
+end
+
+function GUI:draw_text_field(ctrl, value_field, box_x, box_y, box_w, box_h)
+    render.rect(box_x, box_y, box_w, box_h, unpack(self.theme.control_bg))
+    render.rect_outline(box_x, box_y, box_w, box_h, unpack(self.theme.control_outline))
+    local text_before_cursor = ctrl[value_field]:sub(1, ctrl.cursor_pos)
+    local cursor_x_pos = render.measure_text(text_before_cursor, 2).x
+    local text_width = render.measure_text(ctrl[value_field], 2).x
+    local inner_box_w = box_w - 10
+    if cursor_x_pos < ctrl.text_offset then ctrl.text_offset = cursor_x_pos end
+    if cursor_x_pos > ctrl.text_offset + inner_box_w then ctrl.text_offset = cursor_x_pos - inner_box_w end
+    ctrl.text_offset = math.max(0, math.min(ctrl.text_offset or 0, text_width - inner_box_w))
+    render.push_clip_rect(box_x + 5, box_y, inner_box_w, box_h)
+    if self:has_selection(ctrl) then local start_pos, end_pos = self:get_selection_points(ctrl); local text_before = ctrl[value_field]:sub(1, start_pos); local text_selected = ctrl[value_field]:sub(start_pos + 1, end_pos); local x_start = box_x + 5 - ctrl.text_offset + render.measure_text(text_before, 2).x; local sel_width = render.measure_text(text_selected, 2).x; render.rect(x_start, box_y + 2, sel_width, box_h - 4, 70, 110, 180, 120) end
+    render.text(box_x + 5 - ctrl.text_offset, box_y + 2, ctrl[value_field], unpack(self.theme.text))
+    if self.focused_control == ctrl then local current_time = globals.curtime(); if current_time - ctrl.last_caret_toggle > 0.5 then ctrl.caret_visible = not ctrl.caret_visible; ctrl.last_caret_toggle = current_time end; if ctrl.caret_visible then local caret_x = box_x + 5 - ctrl.text_offset + cursor_x_pos; render.line(caret_x, box_y + 2, caret_x, box_y + box_h - 2, unpack(self.theme.text)) end end
+    render.pop_clip_rect()
+    if self.input.lmb_clicked and self:is_mouse_in(box_x, box_y, box_w, box_h) then self.focused_control = ctrl; local relative_x = self.input.cursor.x - (box_x + 5) + ctrl.text_offset; local char_idx = self:get_char_index_from_mouse_pos(ctrl[value_field], relative_x); ctrl.cursor_pos = char_idx; ctrl.selection_anchor = char_idx; ctrl.is_selecting_with_mouse = true end
+    if ctrl.is_selecting_with_mouse then if self.input.lmb_pressed then local relative_x = self.input.cursor.x - (box_x + 5) + ctrl.text_offset; ctrl.cursor_pos = self:get_char_index_from_mouse_pos(ctrl[value_field], relative_x) else ctrl.is_selecting_with_mouse = false end end
+end
+
+return GUI
